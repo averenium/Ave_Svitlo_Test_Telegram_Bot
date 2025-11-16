@@ -1,0 +1,6 @@
+@AVE.ElectricityBot_HostAddress = http://localhost:5108
+
+GET {{AVE.ElectricityBot_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

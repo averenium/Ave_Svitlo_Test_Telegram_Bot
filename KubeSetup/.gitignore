@@ -1,0 +1,8 @@
+# Не комітити реальні secrets!
+secrets.yaml
+secrets.temp.yaml
+deployment.temp.yaml
+
+# Kubernetes тимчасові файли
+*.tmp
+*.temp

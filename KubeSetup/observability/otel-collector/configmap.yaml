@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-config
+  labels:
+    app: otel-collector
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      # Prometheus receiver для scraping метрик з подів
+      prometheus:
+        config:
+          scrape_configs:
+            # Scrape OpenTelemetry Collector itself
+            - job_name: 'otel-collector'
+              scrape_interval: 10s
+              static_configs:
+                - targets: ['localhost:8888']
+
+            # Kubernetes Pods з prometheus.io/scrape annotation
+            - job_name: 'kubernetes-pods'
+              kubernetes_sd_configs:
+                - role: pod
+              relabel_configs:
+                # Scrape тільки поди з prometheus.io/scrape: "true"
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: true
+                
+                # Використовувати кастомний path якщо вказано
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                  action: replace
+                  target_label: __metrics_path__
+                  regex: (.+)
+                
+                # Використовувати кастомний port якщо вказано
+                - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                  action: replace
+                  regex: ([^:]+)(?::\d+)?;(\d+)
+                  replacement: $1:$2
+                  target_label: __address__
+                
+                # Додати pod metadata як labels
+                - source_labels: [__meta_kubernetes_namespace]
+                  action: replace
+                  target_label: kubernetes_namespace
+                
+                - source_labels: [__meta_kubernetes_pod_name]
+                  action: replace
+                  target_label: kubernetes_pod_name
+                
+                - source_labels: [__meta_kubernetes_pod_label_app]
+                  action: replace
+                  target_label: app
+                
+                - source_labels: [__meta_kubernetes_pod_label_version]
+                  action: replace
+                  target_label: version
+                
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  action: replace
+                  target_label: kubernetes_node
+
+      # OTLP receiver для отримання метрик/traces через OTLP protocol
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+
+    processors:
+      # Batch processor для оптимізації
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      
+      # Memory limiter для запобігання OOM
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+        spike_limit_mib: 128
+      
+      # Resource detection для додавання Kubernetes metadata
+      resourcedetection/kubernetes:
+        detectors: [env, system, kubernetes]
+        timeout: 5s
+        override: false
+      
+      # Attributes processor для додаткових labels
+      attributes:
+        actions:
+          - key: cluster
+            value: "ave-bot-cluster"
+            action: insert
+          - key: environment
+            value: "test"
+            action: insert
+
+    exporters:
+      # Prometheus exporter - експортує метрики у форматі Prometheus
+      prometheus:
+        endpoint: "0.0.0.0:8889"
+        namespace: "otel"
+        const_labels:
+          collector: "otel-collector"
+      
+      # Prometheus Remote Write - надсилає в Prometheus
+      prometheusremotewrite:
+        endpoint: "http://prometheus:9090/api/v1/write"
+        tls:
+          insecure: true
+      
+      # Logging exporter для debugging
+      logging:
+        verbosity: detailed
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+    service:
+      pipelines:
+        # Metrics pipeline
+        metrics:
+          receivers: [prometheus, otlp]
+          processors: [memory_limiter, resourcedetection/kubernetes, attributes, batch]
+          exporters: [prometheusremotewrite, prometheus, logging]
+      
+      # Telemetry для моніторингу самого collector
+      telemetry:
+        logs:
+          level: info
+        metrics:
+          address: 0.0.0.0:8888

@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ave-svitlo-test-bot
+  labels:
+    app: ave-svitlo-test-bot
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ave-svitlo-test-bot
+  template:
+    metadata:
+      labels:
+        app: ave-svitlo-test-bot
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: ave-svitlo-test-bot
+        image: evgenles/ave-svitlo-test-app:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        env:
+        - name: ASPNETCORE_URLS
+          value: "http://+:8080"
+        - name: TZ
+          value: "Europe/Kyiv"
+        - name: TelegramBot__Token
+          valueFrom:
+            secretKeyRef:
+              name: ave-bot-secrets
+              key: telegram-bot-token
+        - name: Azure__CosmosDb__Endpoint
+          valueFrom:
+            secretKeyRef:
+              name: ave-bot-secrets
+              key: cosmos-db-endpoint
+        - name: Azure__CosmosDb__Key
+          valueFrom:
+            secretKeyRef:
+              name: ave-bot-secrets
+              key: cosmos-db-key
+        - name: Azure__CosmosDb__DatabaseName
+          valueFrom:
+            configMapKeyRef:
+              name: ave-bot-config
+              key: cosmos-db-database
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        # livenessProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: 8080
+        #   initialDelaySeconds: 30
+        #   periodSeconds: 10
+        #   timeoutSeconds: 5
+        #   failureThreshold: 3
+        # readinessProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: 8080
+        #   initialDelaySeconds: 10
+        #   periodSeconds: 5
+        #   timeoutSeconds: 3
+        #   failureThreshold: 3
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ave-svitlo-test-bot-service
+  labels:
+    app: ave-svitlo-test-bot
+spec:
+  type: ClusterIP
+  ports:
+  - port: 9191
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  selector:
+    app: ave-svitlo-test-bot
