@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.EntityFrameworkCore;
 
 namespace AVE.ElectricityBot.Data.Entities;
 
@@ -6,6 +7,8 @@ namespace AVE.ElectricityBot.Data.Entities;
 /// Стан скрапінгу каналу - зберігає ID останнього обробленого повідомлення
 /// Зберігається в тому ж контейнері що й користувачі, але з іншим partition key
 /// </summary>
+[Index(nameof(ChannelUsername), IsUnique = true, Name = "ix_channel_scraping_channel_username")]
+[Index(nameof(LastScrapeAt), Name = "ix_channel_scraping_last_scrape_at")]
 public class ChannelScrapingState
 {
     /// <summary>

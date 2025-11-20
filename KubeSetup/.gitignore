@@ -6,3 +6,6 @@ deployment.temp.yaml
 # Kubernetes עטלקאסמג³ פאיכט
 *.tmp
 *.temp
+
+# Database credentials
+db/app-credentials.yaml

@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ave-svitlo-test-bot
+  namespace: ave-svitlo
   labels:
     app: ave-svitlo-test-bot
     version: v1
@@ -37,21 +38,22 @@ spec:
             secretKeyRef:
               name: ave-bot-secrets
               key: telegram-bot-token
-        - name: Azure__CosmosDb__Endpoint
+        - name: Postgres__Host
+          value: "postgres"
+        - name: Postgres__Port
+          value: "5432"
+        - name: Postgres__Database
+          value: "electricity_bot"
+        - name: Postgres__Username
           valueFrom:
             secretKeyRef:
-              name: ave-bot-secrets
-              key: cosmos-db-endpoint
-        - name: Azure__CosmosDb__Key
+              name: postgres-app-credentials
+              key: APP_DB_USER
+        - name: Postgres__Password
           valueFrom:
             secretKeyRef:
-              name: ave-bot-secrets
-              key: cosmos-db-key
-        - name: Azure__CosmosDb__DatabaseName
-          valueFrom:
-            configMapKeyRef:
-              name: ave-bot-config
-              key: cosmos-db-database
+              name: postgres-app-credentials
+              key: APP_DB_PASSWORD
         resources:
           requests:
             memory: "128Mi"
@@ -81,6 +83,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ave-svitlo-test-bot-service
+  namespace: ave-svitlo
   labels:
     app: ave-svitlo-test-bot
 spec:

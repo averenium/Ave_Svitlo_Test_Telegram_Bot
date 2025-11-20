@@ -2,6 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: ave-bot-config
+  namespace: ave-svitlo
   labels:
     app: ave-svitlo-test-bot
 data:

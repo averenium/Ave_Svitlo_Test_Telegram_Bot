@@ -1,10 +1,18 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+using Microsoft.EntityFrameworkCore;
 
 namespace AVE.ElectricityBot.Data.Entities;
 
 /// <summary>
 /// Користувач бота
 /// </summary>
+[Index(nameof(TelegramUserId), IsUnique = true, Name = "ix_users_telegram_user_id")]
+[Index(nameof(TelegramChatId), Name = "ix_users_telegram_chat_id")]
+[Index(nameof(IsActive), Name = "ix_users_is_active")]
+[Index(nameof(LastActiveAt), Name = "ix_users_last_active_at")]
+[Index(nameof(GroupName), Name = "ix_users_group_name")]
+[Index(nameof(DsoId), Name = "ix_users_dso_id")]
 public class BotUser
 {
     /// <summary>
@@ -57,11 +65,13 @@ public class BotUser
     /// <summary>
     /// Адреса користувача
     /// </summary>
+    [Column(TypeName = "jsonb")]
     public UserAddress? Address { get; set; }
 
     /// <summary>
     /// Налаштування користувача
     /// </summary>
+    [Column(TypeName = "jsonb")]
     public UserSettings? Settings { get; set; }
 
     /// <summary>

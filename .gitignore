@@ -422,3 +422,4 @@ tmp_comands/
 # Kubernetes secrets
 *-secret.yaml
 *-secrets.yaml
+/.vscode/settings.json

@@ -1,10 +1,14 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.EntityFrameworkCore;
 
 namespace AVE.ElectricityBot.Data.Entities;
 
 /// <summary>
 /// Історія розкладу відключень (зберігається раз на годину)
 /// </summary>
+[Index(nameof(RecordedAt), Name = "ix_schedule_history_recorded_at")]
+[Index(nameof(ScheduleDate), nameof(GroupName), Name = "ix_schedule_history_date_group")]
+[Index(nameof(GroupName), Name = "ix_schedule_history_group_name")]
 public class ScheduleHistory
 {
     /// <summary>
@@ -42,25 +46,25 @@ public class ScheduleHistory
     /// </summary>
     [Required]
     [MaxLength(50)]
-    public string Status { get; set; } // "ScheduleApplies", "WaitingForSchedule", "Unavailable"
+    public string Status { get; set; } = string.Empty;
 
     /// <summary>
     /// Деталі слотів відключень (JSON)
     /// Формат: [{"start": 420, "end": 660, "type": "Definite"}, ...]
     /// </summary>
     [MaxLength(2000)]
-    public string SlotsJson { get; set; }
+    public string SlotsJson { get; set; } = string.Empty;
 
     /// <summary>
     /// Група відключень (наприклад: "5.1")
     /// </summary>
     [MaxLength(10)]
-    public string GroupName { get; set; }
+    public string GroupName { get; set; } = string.Empty;
 
     /// <summary>
     /// Partition key для Cosmos DB (за датою для ефективних запитів)
     /// </summary>
     [Required]
     [MaxLength(20)]
-    public string PartitionKey { get; set; } // Format: "yyyy-MM"
+    public string PartitionKey { get; set; } = string.Empty;
 }

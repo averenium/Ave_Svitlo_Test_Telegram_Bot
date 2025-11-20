@@ -1,4 +1,4 @@
-namespace AVE.ElectricityBot.Data.Interfaces;
+namespace AVE.ElectricityBot.Data.Abstractions;
 
 using AVE.ElectricityBot.Data.Entities;
 

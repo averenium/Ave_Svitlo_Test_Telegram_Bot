@@ -1,6 +1,6 @@
 using AVE.ElectricityBot.Configuration;
 using AVE.ElectricityBot.Data.Entities;
-using AVE.ElectricityBot.Data.Interfaces;
+using AVE.ElectricityBot.Data.Abstractions;
 using AVE.ElectricityBot.Services.Interfaces;
 using AVE.ElectricityBot.YasnoApi;
 using AVE.ElectricityBot.YasnoApi.Models;

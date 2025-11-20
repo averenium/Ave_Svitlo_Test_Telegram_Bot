@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: ave-svitlo
+  labels:
+    app: postgres
+data:
+  01-init-db.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "Initializing database with app user: ${APP_DB_USER}"
+    
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        -- Create application user
+        DO \$\$
+        BEGIN
+          IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '${APP_DB_USER}') THEN
+            CREATE USER ${APP_DB_USER} WITH PASSWORD '${APP_DB_PASSWORD}';
+            RAISE NOTICE 'User ${APP_DB_USER} created';
+          END IF;
+        END
+        \$\$;
+        
+        -- Grant privileges
+        GRANT CONNECT ON DATABASE electricity_bot TO ${APP_DB_USER};
+        GRANT USAGE ON SCHEMA public TO ${APP_DB_USER};
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${APP_DB_USER};
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${APP_DB_USER};
+        
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+          GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${APP_DB_USER};
+        
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public 
+          GRANT USAGE, SELECT ON SEQUENCES TO ${APP_DB_USER};
+        
+        -- Enable TimescaleDB
+        CREATE EXTENSION IF NOT EXISTS timescaledb;
+    EOSQL
+    
+    echo "Database initialization completed"

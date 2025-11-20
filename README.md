@@ -1,4 +1,4 @@
-﻿# AVE.SvitloTest_TelegramBot
+# AVE.SvitloTest_TelegramBot
 
 Ботом можна скористатись за посиланнням: https://t.me/ave_svitlo_test_bot (@ave_svitlo_test_bot)   
 
@@ -20,6 +20,36 @@
 
 ### AVE.ElectricityBot.TelegramScraper
 Скрапер повідомлень із Telegram preview public channel
+
+### AVE.ElectricityBot.Data
+Бібліотека для роботи з базою даних (PostgreSQL/TimescaleDB)
+
+## База даних
+
+### PostgreSQL (Поточна)
+Використовується PostgreSQL для зберігання даних. Підтримка:
+- ✅ Користувачі бота
+- ✅ Стан скрапінгу каналів
+- ✅ Історія розкладів
+- ✅ JSONB для складних об'єктів
+- ✅ Індекси для швидкого пошуку
+- ✅ UTC для всіх DateTime
+
+### 🔄 Міграція з CosmosDB
+
+Якщо у вас є дані в CosmosDB і потрібно мігрувати в PostgreSQL:
+
+**Швидкий старт:**
+```powershell
+# 1. Налаштуйте CosmosDB в appsettings.json
+# 2. Запустіть додаток
+dotnet run --project AVE.ElectricityBot
+
+# 3. Запустіть міграцію
+.\migrate-data.ps1
+```
+
+📖 **Детальна документація:** [MIGRATION_QUICKSTART.md](./MIGRATION_QUICKSTART.md)
 
 ## Функціональність
 
@@ -92,3 +122,43 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━
 🔄 Оновлено: 17:01, 09.11.2025
 ```
+
+## 🚀 Налаштування
+
+### Конфігурація
+
+Створіть `secrets.json` або додайте до `appsettings.json`:
+
+```json
+{
+  "TelegramBot": {
+    "Token": "your-telegram-bot-token"
+  },
+  "Postgres": {
+    "Host": "localhost",
+    "Port": 5432,
+    "Database": "electricity_bot",
+    "Username": "postgres",
+    "Password": "your-password"
+  }
+}
+```
+
+Приклад конфігурації: [secrets.json.example](./secrets.json.example)
+
+### Запуск
+
+```bash
+# Запустити PostgreSQL (Docker)
+docker-compose up -d postgres
+
+# Запустити бота
+dotnet run --project AVE.ElectricityBot
+```
+
+## 📚 Документація
+
+- [Міграція з CosmosDB](./MIGRATION_QUICKSTART.md) - швидкий старт міграції
+- [Детальна інструкція міграції](./AVE.ElectricityBot.Data/MIGRATION_README.md) - повна документація
+- [Yasno API](./AVE.ElectricityBot.YasnoApi/README.md) - робота з API Yasno
+- [Telegram Scraper](./AVE.ElectricityBot.TelegramScraper/README.md) - скрапінг каналів

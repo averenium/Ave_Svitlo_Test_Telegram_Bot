@@ -1,16 +1,16 @@
 using AVE.ElectricityBot.Configuration;
-using AVE.ElectricityBot.Data;
-using AVE.ElectricityBot.Data.Implementations;
-using AVE.ElectricityBot.Data.Interfaces;
+using AVE.ElectricityBot.Data.Extensions;
 using AVE.ElectricityBot.Services.Extensions;
 using AVE.ElectricityBot.YasnoApi.Extensions;
 using AVE.ElectricityBot.TelegramScraper;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Text;
 using Telegram.Bot;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
+using AVE.ElectricityBot.Data.Context;
+using AVE.ElectricityBot.Data.Services;
+using Microsoft.EntityFrameworkCore;
 
 // Налаштування кодування для консолі (для правильного відображення емодзі в логах)
 Console.OutputEncoding = Encoding.UTF8;
@@ -36,23 +36,30 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
     return new TelegramBotClient(config.Token);
 });
 
-var cosmosEndpoint = builder.Configuration.GetValue<string>("Azure:CosmosDb:Endpoint");
-var cosmosKey = builder.Configuration.GetValue<string>("Azure:CosmosDb:Key");
-var cosmosDatabaseName = builder.Configuration.GetValue<string>("Azure:CosmosDb:DatabaseName");
+// Використовуємо extension метод для додавання PostgreSQL (автоматично читає конфігурацію)
+builder.Services.AddPostgresData();
 
-if (string.IsNullOrEmpty(cosmosEndpoint) || string.IsNullOrEmpty(cosmosKey))
-{
-    throw new InvalidOperationException(
-        "Azure Cosmos DB конфігурація не задана! Встановіть значення в appsettings.json: " +
-        "Azure:CosmosDb:Endpoint та Azure:CosmosDb:Key");
-}
+//// Реєстрація CosmosDB Context (для міграції даних)
+//// Цей блок можна закоментувати після завершення міграції
+//var cosmosEndpoint = builder.Configuration["CosmosDb:AccountEndpoint"];
+//var cosmosKey = builder.Configuration["CosmosDb:AccountKey"];
+//var cosmosDb = builder.Configuration["CosmosDb:DatabaseName"];
 
-builder.Services.AddDbContext<BotDbContext>(options =>
-{
-    options.UseCosmos(cosmosEndpoint, cosmosKey, cosmosDatabaseName);
-}, ServiceLifetime.Singleton);
-
-builder.Services.AddSingleton<IBotDataService, BotDataService>();
+//if (!string.IsNullOrEmpty(cosmosEndpoint) && !string.IsNullOrEmpty(cosmosKey) && !string.IsNullOrEmpty(cosmosDb))
+//{
+//    builder.Services.AddDbContext<BotDbContext>(options =>
+//        options.UseCosmos(cosmosEndpoint, cosmosKey, cosmosDb));
+    
+//    // Реєстрація DataMigrationService
+//    builder.Services.AddScoped<DataMigrationService>();
+    
+//    Console.WriteLine("✅ CosmosDB Context і DataMigrationService зареєстровані");
+//    Console.WriteLine("💡 Використовуйте /api/migration/migrate-all для запуску міграції");
+//}
+//else
+//{
+//    Console.WriteLine("⚠️ CosmosDB не налаштовано - міграція недоступна");
+//}
 
 // Додаємо Yasno API клієнт
 builder.Services.AddYasnoApiClient();
@@ -87,9 +94,7 @@ builder.Services.AddOpenApi();
 builder.Services.AddHealthChecks();
 var app = builder.Build();
 
-// Ініціалізація Cosmos DB (створення БД та контейнерів)
-await EnsureCosmosDbCreatedAsync(app.Services);
-
+// Примітка: PostgreSQL / TimescaleDB схему слід застосувати окремо (див. файл Data/postgres-schema.sql)
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -107,25 +112,3 @@ app.MapControllers();
 
 app.Run();
 
-static async Task EnsureCosmosDbCreatedAsync(IServiceProvider services)
-{
-    try
-    {
-        using var scope = services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<BotDbContext>();
-        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-
-        logger.LogInformation("🔍 Перевірка Cosmos DB...");
-        
-        // Створює БД та контейнери якщо не існують
-        await context.Database.EnsureCreatedAsync();
-        
-        logger.LogInformation("✅ Cosmos DB готова до роботи");
-    }
-    catch (Exception ex)
-    {
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "❌ Помилка ініціалізації Cosmos DB");
-        throw;
-    }
-}
