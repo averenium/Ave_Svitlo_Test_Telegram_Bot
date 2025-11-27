@@ -8,7 +8,7 @@
     
     <!-- Docker/Container Support -->
     <EnableSdkContainerSupport>true</EnableSdkContainerSupport>
-    <ContainerImageTag>2.1</ContainerImageTag>
+    <ContainerImageTag>2.2</ContainerImageTag>
     <ContainerPort>8080</ContainerPort>
     <ContainerRepository>evgenles/ave-svitlo-test-app</ContainerRepository>
   </PropertyGroup>

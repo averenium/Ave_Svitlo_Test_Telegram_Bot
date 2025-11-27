@@ -19,9 +19,11 @@ public class ScheduleCacheService : IScheduleCacheService
     // Кеш для кожного DSO окремо
     private readonly Dictionary<int, PlannedOutagesResponse?> _cachedOutagesByDso = new();
     private readonly Dictionary<int, DateTime?> _lastUpdateByDso = new();
+    private readonly Dictionary<int, DateTime?> _lastFailedAttemptByDso = new();
 
     // Інтервал оновлення кешу
     private readonly TimeSpan _cacheLifetime = TimeSpan.FromMinutes(5);
+    private readonly TimeSpan _retryAfterFailure = TimeSpan.FromMinutes(1);
 
     public ScheduleCacheService(
         IYasnoApiClient yasnoApiClient,
@@ -42,16 +44,28 @@ public class ScheduleCacheService : IScheduleCacheService
 
     public async Task<PlannedOutagesResponse?> GetPlannedOutagesAsync(int dsoId, CancellationToken cancellationToken = default)
     {
-        // Перевіряємо чи потрібно оновити кеш
-        if (_cachedOutagesByDso.ContainsKey(dsoId) &&
-            _lastUpdateByDso.ContainsKey(dsoId) &&
-            _lastUpdateByDso[dsoId].HasValue &&
-            DateTime.Now.Date == _lastUpdateByDso[dsoId]!.Value.Date &&
-            DateTime.Now - _lastUpdateByDso[dsoId]!.Value < _cacheLifetime)
+        // Перевіряємо чи є валідний кеш
+        if (IsCacheValid(dsoId))
         {
-            _logger.LogDebug("?? Використовую кешаний розклад для DSO={DsoId} (останнє оновлення: {LastUpdate})", 
+            _logger.LogDebug("📦 Використовую кешаний розклад для DSO={DsoId} (останнє оновлення: {LastUpdate})", 
                 dsoId, _lastUpdateByDso[dsoId]!.Value.ToLocalTime());
             return _cachedOutagesByDso[dsoId];
+        }
+
+        // Перевіряємо чи не було недавньої невдалої спроби
+        if (IsRetryTooSoon(dsoId))
+        {
+            var nextRetry = _lastFailedAttemptByDso[dsoId]!.Value.Add(_retryAfterFailure);
+            var timeUntilRetry = nextRetry - DateTime.Now;
+            
+            _logger.LogWarning(
+                "⏳ API недоступний для DSO={DsoId}. Наступна спроба через {Seconds} сек (о {NextRetry})",
+                dsoId,
+                (int)timeUntilRetry.TotalSeconds,
+                nextRetry.ToLocalTime());
+
+            // Повертаємо кешовані дані (навіть якщо застарілі) або null
+            return _cachedOutagesByDso.GetValueOrDefault(dsoId);
         }
 
         // Оновлюємо кеш (з блокуванням для безпеки потоків)
@@ -59,39 +73,18 @@ public class ScheduleCacheService : IScheduleCacheService
         try
         {
             // Подвійна перевірка після отримання блокування
-            if (_cachedOutagesByDso.ContainsKey(dsoId) &&
-                _lastUpdateByDso.ContainsKey(dsoId) &&
-                _lastUpdateByDso[dsoId].HasValue &&
-                DateTime.Now.Date == _lastUpdateByDso[dsoId]!.Value.Date &&
-                DateTime.Now - _lastUpdateByDso[dsoId]!.Value < _cacheLifetime)
+            if (IsCacheValid(dsoId))
             {
                 return _cachedOutagesByDso[dsoId];
             }
 
-            _logger.LogInformation("?? Оновлення кешу розкладу (regionId={RegionId}, dsoId={DsoId})...", 
-                _addressConfig.RegionId, dsoId);
-
-            var outages = await _yasnoApiClient.GetPlannedOutagesAsync(
-                _addressConfig.RegionId,
-                dsoId,
-                cancellationToken);
-
-            if (outages != null)
+            // Перевірка на недавню невдалу спробу (подвійна перевірка)
+            if (IsRetryTooSoon(dsoId))
             {
-                _cachedOutagesByDso[dsoId] = outages;
-                _lastUpdateByDso[dsoId] = DateTime.Now;
-
-                _logger.LogInformation("? Кеш оновлено для DSO={DsoId}. Груп: {Count}. Наступне оновлення: {NextUpdate}", 
-                    dsoId,
-                    outages.Groups.Count,
-                    _lastUpdateByDso[dsoId]!.Value.Add(_cacheLifetime).ToLocalTime());
-            }
-            else
-            {
-                _logger.LogWarning("?? Не вдалося отримати розклад з API для DSO={DsoId}", dsoId);
+                return _cachedOutagesByDso.GetValueOrDefault(dsoId);
             }
 
-            return outages;
+            return await FetchAndCacheOutagesAsync(dsoId, cancellationToken);
         }
         finally
         {
@@ -101,9 +94,11 @@ public class ScheduleCacheService : IScheduleCacheService
 
     public async Task RefreshCacheAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("?? Примусове оновлення кешу...");
+        _logger.LogInformation("🔄 Примусове оновлення кешу...");
         
-        ClearCache();
+        // Очищаємо тільки timestamps, але зберігаємо дані
+        _lastUpdateByDso.Clear();
+        _lastFailedAttemptByDso.Clear();
         
         // Оновлюємо кеш для обох DSO
         await GetPlannedOutagesAsync(301, cancellationToken); // ДТЕК
@@ -114,6 +109,106 @@ public class ScheduleCacheService : IScheduleCacheService
     {
         _cachedOutagesByDso.Clear();
         _lastUpdateByDso.Clear();
-        _logger.LogInformation("??? Кеш очищено");
+        _lastFailedAttemptByDso.Clear();
+        _logger.LogInformation("🗑️ Кеш очищено");
+    }
+
+    /// <summary>
+    /// Перевіряє чи є валідний кеш для DSO
+    /// </summary>
+    private bool IsCacheValid(int dsoId)
+    {
+        return _cachedOutagesByDso.ContainsKey(dsoId) &&
+               _lastUpdateByDso.TryGetValue(dsoId, out var lastUpdate) &&
+               lastUpdate.HasValue &&
+               DateTime.Now.Date == lastUpdate.Value.Date &&
+               DateTime.Now - lastUpdate.Value < _cacheLifetime;
+    }
+
+    /// <summary>
+    /// Перевіряє чи занадто рано для повторної спроби після помилки
+    /// </summary>
+    private bool IsRetryTooSoon(int dsoId)
+    {
+        return _lastFailedAttemptByDso.TryGetValue(dsoId, out var lastFailedAttempt) &&
+               lastFailedAttempt.HasValue &&
+               DateTime.Now - lastFailedAttempt.Value < _retryAfterFailure;
+    }
+
+    /// <summary>
+    /// Отримує дані з API та оновлює кеш
+    /// </summary>
+    private async Task<PlannedOutagesResponse?> FetchAndCacheOutagesAsync(int dsoId, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("🔄 Оновлення кешу розкладу (regionId={RegionId}, dsoId={DsoId})...", 
+            _addressConfig.RegionId, dsoId);
+
+        try
+        {
+            var outages = await _yasnoApiClient.GetPlannedOutagesAsync(
+                _addressConfig.RegionId,
+                dsoId,
+                cancellationToken);
+
+            if (outages != null)
+            {
+                UpdateCacheOnSuccess(dsoId, outages);
+            }
+            else
+            {
+                UpdateCacheOnFailure(dsoId);
+            }
+
+            return outages;
+        }
+        catch (Exception ex)
+        {
+            UpdateCacheOnError(dsoId, ex);
+            // Повертаємо кешовані дані (навіть якщо застарілі) або null
+            return _cachedOutagesByDso.GetValueOrDefault(dsoId);
+        }
+    }
+
+    /// <summary>
+    /// Оновлює кеш при успішному отриманні даних
+    /// </summary>
+    private void UpdateCacheOnSuccess(int dsoId, PlannedOutagesResponse outages)
+    {
+        _cachedOutagesByDso[dsoId] = outages;
+        _lastUpdateByDso[dsoId] = DateTime.Now;
+        
+        // Скидаємо час невдалої спроби при успіху
+        _lastFailedAttemptByDso.Remove(dsoId);
+
+        _logger.LogInformation("✅ Кеш оновлено для DSO={DsoId}. Груп: {Count}. Наступне оновлення: {NextUpdate}", 
+            dsoId,
+            outages.Groups.Count,
+            _lastUpdateByDso[dsoId]!.Value.Add(_cacheLifetime).ToLocalTime());
+    }
+
+    /// <summary>
+    /// Оновлює стан при невдалому отриманні даних (API повернув null)
+    /// </summary>
+    private void UpdateCacheOnFailure(int dsoId)
+    {
+        // Запам'ятовуємо час невдалої спроби
+        _lastFailedAttemptByDso[dsoId] = DateTime.Now;
+        _logger.LogWarning(
+            "❌ Не вдалося отримати розклад з API для DSO={DsoId}. Наступна спроба о {NextRetry}",
+            dsoId,
+            DateTime.Now.Add(_retryAfterFailure).ToLocalTime());
+    }
+
+    /// <summary>
+    /// Оновлює стан при помилці запиту до API
+    /// </summary>
+    private void UpdateCacheOnError(int dsoId, Exception ex)
+    {
+        // Запам'ятовуємо час невдалої спроби при винятку
+        _lastFailedAttemptByDso[dsoId] = DateTime.Now;
+
+        _logger.LogError(ex, "❌ Помилка при запиті до API для DSO={DsoId}. Наступна спроба о {NextRetry}",
+            dsoId,
+            DateTime.Now.Add(_retryAfterFailure).ToLocalTime());
     }
 }
