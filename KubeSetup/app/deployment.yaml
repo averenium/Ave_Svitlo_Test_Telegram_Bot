@@ -23,7 +23,7 @@ spec:
     spec:
       containers:
       - name: ave-svitlo-test-bot
-        image: evgenles/ave-svitlo-test-app:latest
+        image: evgenles/ave-svitlo-test-app:2.1
         imagePullPolicy: Always
         ports:
         - containerPort: 8080

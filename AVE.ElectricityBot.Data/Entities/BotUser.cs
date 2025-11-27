@@ -65,13 +65,11 @@ public class BotUser
     /// <summary>
     /// Адреса користувача
     /// </summary>
-    [Column(TypeName = "jsonb")]
     public UserAddress? Address { get; set; }
 
     /// <summary>
     /// Налаштування користувача
     /// </summary>
-    [Column(TypeName = "jsonb")]
     public UserSettings? Settings { get; set; }
 
     /// <summary>

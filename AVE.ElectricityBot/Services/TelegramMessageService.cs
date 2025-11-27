@@ -137,8 +137,15 @@ public class TelegramMessageService : BackgroundService
         // Обробка callback запитів (натискання кнопок)
         if (update.CallbackQuery is { } callbackQuery)
         {
+            await _dataService.GetOrCreateUserAsync(
+                telegramUserId: callbackQuery.From!.Id,
+                telegramChatId: callbackQuery.Message?.Chat.Id ?? 0,
+                username: callbackQuery.From.Username,
+                firstName: callbackQuery.From.FirstName,
+                lastName: callbackQuery.From.LastName,
+                cancellationToken: cancellationToken);
             await HandleCallbackQueryAsync(botClient, callbackQuery, cancellationToken);
-            return;
+            return; 
         }
 
         // Обробка текстових повідомлень

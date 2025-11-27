@@ -39,28 +39,6 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
 // Використовуємо extension метод для додавання PostgreSQL (автоматично читає конфігурацію)
 builder.Services.AddPostgresData();
 
-//// Реєстрація CosmosDB Context (для міграції даних)
-//// Цей блок можна закоментувати після завершення міграції
-//var cosmosEndpoint = builder.Configuration["CosmosDb:AccountEndpoint"];
-//var cosmosKey = builder.Configuration["CosmosDb:AccountKey"];
-//var cosmosDb = builder.Configuration["CosmosDb:DatabaseName"];
-
-//if (!string.IsNullOrEmpty(cosmosEndpoint) && !string.IsNullOrEmpty(cosmosKey) && !string.IsNullOrEmpty(cosmosDb))
-//{
-//    builder.Services.AddDbContext<BotDbContext>(options =>
-//        options.UseCosmos(cosmosEndpoint, cosmosKey, cosmosDb));
-    
-//    // Реєстрація DataMigrationService
-//    builder.Services.AddScoped<DataMigrationService>();
-    
-//    Console.WriteLine("✅ CosmosDB Context і DataMigrationService зареєстровані");
-//    Console.WriteLine("💡 Використовуйте /api/migration/migrate-all для запуску міграції");
-//}
-//else
-//{
-//    Console.WriteLine("⚠️ CosmosDB не налаштовано - міграція недоступна");
-//}
-
 // Додаємо Yasno API клієнт
 builder.Services.AddYasnoApiClient();
 
@@ -93,8 +71,6 @@ builder.Services.AddOpenApi();
 
 builder.Services.AddHealthChecks();
 var app = builder.Build();
-
-// Примітка: PostgreSQL / TimescaleDB схему слід застосувати окремо (див. файл Data/postgres-schema.sql)
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

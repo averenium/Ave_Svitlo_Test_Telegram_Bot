@@ -46,6 +46,7 @@ public class ScheduleCacheService : IScheduleCacheService
         if (_cachedOutagesByDso.ContainsKey(dsoId) &&
             _lastUpdateByDso.ContainsKey(dsoId) &&
             _lastUpdateByDso[dsoId].HasValue &&
+            DateTime.Now.Date == _lastUpdateByDso[dsoId]!.Value.Date &&
             DateTime.Now - _lastUpdateByDso[dsoId]!.Value < _cacheLifetime)
         {
             _logger.LogDebug("?? Використовую кешаний розклад для DSO={DsoId} (останнє оновлення: {LastUpdate})", 
@@ -61,6 +62,7 @@ public class ScheduleCacheService : IScheduleCacheService
             if (_cachedOutagesByDso.ContainsKey(dsoId) &&
                 _lastUpdateByDso.ContainsKey(dsoId) &&
                 _lastUpdateByDso[dsoId].HasValue &&
+                DateTime.Now.Date == _lastUpdateByDso[dsoId]!.Value.Date &&
                 DateTime.Now - _lastUpdateByDso[dsoId]!.Value < _cacheLifetime)
             {
                 return _cachedOutagesByDso[dsoId];
