@@ -9,3 +9,6 @@ deployment.temp.yaml
 
 # Database credentials
 db/app-credentials.yaml
+
+# Ingress з реальними доменами
+app/ingress.yaml

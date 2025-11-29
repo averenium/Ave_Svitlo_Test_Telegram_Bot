@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ave-svitlo-test-bot-ingress
+  namespace: ave-svitlo
+  labels:
+    app: ave-svitlo-test-bot
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls.certresolver: letsencrypt
+spec:
+  tls:
+  - hosts:
+    - ${INGRESS_HOST}  # Замінити при deploy
+  rules:
+  - host: ${INGRESS_HOST}  # Замінити при deploy
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ave-svitlo-test-bot-service
+            port:
+              number: 9191
