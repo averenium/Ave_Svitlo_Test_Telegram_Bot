@@ -178,3 +178,4 @@ public class OutageSlot
 - `ScheduleApplies` - Розклад застосовується
 - `WaitingForSchedule` - Очікування розкладу
 - `Unavailable` - Розклад недоступний
+- `EmergencyShutdowns` - Аварійні відключення (графік не діє)

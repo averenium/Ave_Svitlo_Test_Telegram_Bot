@@ -21,5 +21,15 @@ public enum OutageScheduleStatus
     /// <summary>
     /// Розклад недоступний
     /// </summary>
-    Unavailable
+    Unavailable,
+    
+    /// <summary>
+    /// Аварійні відключення (графік не діє)
+    /// </summary>
+    EmergencyShutdowns,
+
+    /// <summary>
+    /// Відключень немає
+    /// </summary>
+    NoOutages
 }

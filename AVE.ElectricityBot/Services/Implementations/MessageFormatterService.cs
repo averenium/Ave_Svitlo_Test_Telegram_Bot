@@ -21,15 +21,15 @@ public class MessageFormatterService : IMessageFormatterService
     {
         var sb = new StringBuilder();
         
-        // Додаємо дату сьогодні до хешу
-        sb.Append($"T:{schedule.Today.Date:yyyy-MM-dd}:");
+        // Додаємо дату сьогодні та статус до хешу
+        sb.Append($"T:{schedule.Today.Date:yyyy-MM-dd}:{schedule.Today.Status}:");
         foreach (var slot in schedule.Today.Slots.Where(s => s.Type == OutageSlotType.Definite).OrderBy(s => s.Start))
             sb.Append($"{slot.Start}-{slot.End};");
         
         sb.Append("|");
         
-        // Додаємо дату завтра до хешу
-        sb.Append($"T:{schedule.Tomorrow.Date:yyyy-MM-dd}:");
+        // Додаємо дату завтра та статус до хешу
+        sb.Append($"T:{schedule.Tomorrow.Date:yyyy-MM-dd}:{schedule.Tomorrow.Status}:");
         foreach (var slot in schedule.Tomorrow.Slots.Where(s => s.Type == OutageSlotType.Definite).OrderBy(s => s.Start))
             sb.Append($"{slot.Start}-{slot.End};");
         
@@ -104,10 +104,16 @@ public class MessageFormatterService : IMessageFormatterService
                 AppendCurrentStatus(sb, definiteSlots);
             }
         }
-        else
+        else if (schedule.Status == OutageScheduleStatus.ScheduleApplies
+              || schedule.Status == OutageScheduleStatus.NoOutages)
         {
             sb.AppendLine("│ ✅ <b>Відключень немає</b>");
             sb.AppendLine("│ 💡 Світло буде цілий день!");
+        }
+        else if (schedule.Status == OutageScheduleStatus.EmergencyShutdowns)
+        {
+            sb.AppendLine("│ 🚨 <b>Розклад не діє</b>");
+            sb.AppendLine("│ ⚠️ Інформація про відключення відсутня");
         }
     }
 
@@ -187,6 +193,8 @@ public class MessageFormatterService : IMessageFormatterService
             OutageScheduleStatus.ScheduleApplies => "✅",
             OutageScheduleStatus.WaitingForSchedule => "⏳",
             OutageScheduleStatus.Unavailable => "❌",
+            OutageScheduleStatus.EmergencyShutdowns => "🚨",
+            OutageScheduleStatus.NoOutages => "✅",
             _ => "❓"
         };
     }
@@ -198,6 +206,8 @@ public class MessageFormatterService : IMessageFormatterService
             OutageScheduleStatus.ScheduleApplies => "Розклад діє",
             OutageScheduleStatus.WaitingForSchedule => "Очікується розклад",
             OutageScheduleStatus.Unavailable => "Розклад недоступний",
+            OutageScheduleStatus.EmergencyShutdowns => "Аварійні відключення",
+            OutageScheduleStatus.NoOutages => "Відключень немає",
             _ => status.ToString()
         };
     }

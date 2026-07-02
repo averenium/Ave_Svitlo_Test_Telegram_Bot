@@ -150,6 +150,8 @@ public class ScheduleCommandHandler : BaseCommandHandler
             YasnoApi.Models.OutageScheduleStatus.ScheduleApplies => "✅",
             YasnoApi.Models.OutageScheduleStatus.WaitingForSchedule => "⏳",
             YasnoApi.Models.OutageScheduleStatus.Unavailable => "❌",
+            YasnoApi.Models.OutageScheduleStatus.EmergencyShutdowns => "🚨",
+            YasnoApi.Models.OutageScheduleStatus.NoOutages => "✅",
             _ => "❓"
         };
 
@@ -158,6 +160,8 @@ public class ScheduleCommandHandler : BaseCommandHandler
             YasnoApi.Models.OutageScheduleStatus.ScheduleApplies => "Розклад діє",
             YasnoApi.Models.OutageScheduleStatus.WaitingForSchedule => "Очікується розклад",
             YasnoApi.Models.OutageScheduleStatus.Unavailable => "Розклад недоступний",
+            YasnoApi.Models.OutageScheduleStatus.EmergencyShutdowns => "Аварійні відключення",
+            YasnoApi.Models.OutageScheduleStatus.NoOutages => "Відключень немає",
             _ => schedule.Status.ToString()
         };
 
@@ -190,12 +194,18 @@ public class ScheduleCommandHandler : BaseCommandHandler
             sb.AppendLine("│");
             sb.AppendLine($"│ 📊 <b>Загалом:</b> {totalHours:F1} год • {definiteSlots.Count} {periodsText}");
         }
-        else if (schedule.Status == YasnoApi.Models.OutageScheduleStatus.ScheduleApplies)
+        else if (schedule.Status == YasnoApi.Models.OutageScheduleStatus.ScheduleApplies
+              || schedule.Status == YasnoApi.Models.OutageScheduleStatus.NoOutages)
         {
-            // Тільки якщо розклад діє - показуємо що відключень немає
             sb.AppendLine("│");
             sb.AppendLine("│ ✅ <b>Відключень немає</b>");
             sb.AppendLine("│ 💡 Світло буде цілий день!");
+        }
+        else if (schedule.Status == YasnoApi.Models.OutageScheduleStatus.EmergencyShutdowns)
+        {
+            sb.AppendLine("│");
+            sb.AppendLine("│ 🚨 <b>Розклад не діє</b>");
+            sb.AppendLine("│ ⚠️ Інформація про відключення відсутня");
         }
     }
 }

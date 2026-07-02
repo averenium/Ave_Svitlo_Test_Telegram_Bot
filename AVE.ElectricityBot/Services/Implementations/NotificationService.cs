@@ -390,6 +390,8 @@ public class NotificationService : INotificationService
             OutageScheduleStatus.ScheduleApplies => "✅",
             OutageScheduleStatus.WaitingForSchedule => "⏳",
             OutageScheduleStatus.Unavailable => "❌",
+            OutageScheduleStatus.EmergencyShutdowns => "🚨",
+            OutageScheduleStatus.NoOutages => "✅",
             _ => "❓"
         };
 
@@ -398,6 +400,8 @@ public class NotificationService : INotificationService
             OutageScheduleStatus.ScheduleApplies => "Розклад діє",
             OutageScheduleStatus.WaitingForSchedule => "Очікується розклад",
             OutageScheduleStatus.Unavailable => "Розклад недоступний",
+            OutageScheduleStatus.EmergencyShutdowns => "Аварійні відключення",
+            OutageScheduleStatus.NoOutages => "Відключень немає",
             _ => schedule.Status.ToString()
         };
 
@@ -425,17 +429,23 @@ public class NotificationService : INotificationService
             var totalMinutes = definiteSlots.Sum(s => s.End - s.Start);
             var totalHours = totalMinutes / 60.0;
             var periodsText = definiteSlots.Count == 1 ? "період" :
-                             definiteSlots.Count < 5 ? "періоди" : "періодів";
+                             definiteSlots.Count < 5 ? "періоди" : "períодів";
 
             sb.AppendLine("│");
             sb.AppendLine($"│ 📊 <b>Загалом:</b> {totalHours:F1} год • {definiteSlots.Count} {periodsText}");
         }
-        else if (schedule.Status == OutageScheduleStatus.ScheduleApplies)
+        else if (schedule.Status == OutageScheduleStatus.ScheduleApplies
+              || schedule.Status == OutageScheduleStatus.NoOutages)
         {
-            // Тільки якщо розклад діє - показуємо що відключень немає
             sb.AppendLine("│");
             sb.AppendLine("│ ✅ <b>Відключень немає</b>");
             sb.AppendLine("│ 💡 Світло буде цілий день!");
+        }
+        else if (schedule.Status == OutageScheduleStatus.EmergencyShutdowns)
+        {
+            sb.AppendLine("│");
+            sb.AppendLine("│ 🚨 <b>Розклад не діє</b>");
+            sb.AppendLine("│ ⚠️ Інформація про відключення відсутня");
         }
     }
 
