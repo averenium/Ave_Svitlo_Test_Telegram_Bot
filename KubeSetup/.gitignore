@@ -12,3 +12,6 @@ db/app-credentials.yaml
 
 # Ingress з реальними доменами
 app/ingress.yaml
+
+# VS Code workspace settings (SQLTools DB connections with credentials)
+.vscode/
