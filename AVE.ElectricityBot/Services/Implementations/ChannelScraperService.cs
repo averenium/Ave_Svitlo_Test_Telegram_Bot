@@ -22,28 +22,27 @@ public class ChannelScraperService : IChannelScraperService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<ChannelScraperService> _logger;
 
-    // Кеш оброблених повідомлень (в пам'яті)
-    private static readonly ConcurrentDictionary<long, DateTime> _processedMessages = new();
-    // Кеш текстів повідомлень для дедуплікації між каналами
-    private static readonly ConcurrentDictionary<string, long> _processedTexts = new();
+    // Кеш оброблених повідомлень (в пам'яті), ключ — "канал:id" (ID у різних каналах можуть збігатися)
+    private static readonly ConcurrentDictionary<string, DateTime> _processedMessages = new();
+    // Кеш текстів повідомлень для дедуплікації між каналами: хеш тексту -> ключ повідомлення
+    private static readonly ConcurrentDictionary<string, string> _processedTexts = new();
+    // Кеш графіків: зміст графіка -> пересилання цього змісту (відбиток, час публікації, ключ повідомлення).
+    // Чи це той самий графік, вирішує ChannelMessageClassifier.IsSameSchedule
+    private static readonly Dictionary<string, List<(ChannelMessageClassifier.ScheduleFingerprint Fingerprint, DateTime PublishedUtc, string MessageKey)>> _processedSchedules = new();
+    private static readonly object _schedulesLock = new();
     private static readonly TimeSpan _cacheExpiration = TimeSpan.FromHours(24);
 
     // Налаштовані канали
     private const string Channel1Username = "dnipro_svet";
     private const string Channel2Username = "ddnepr_vse";
 
-    // Regex для пошуку провайдера та груп
-    private static readonly Regex DsoRegex = new(@"ДСО\s*(?:Д|Ц|\d+|ДТЕК)", RegexOptions.IgnoreCase);
-    // Regex для пошук груп (простий формат: 1.1, 2.2, 5.1 тощо)
-    private static readonly Regex GroupRegex = new(@"\b(\d+\.\d+)\b", RegexOptions.Compiled);
-    
+    private static readonly Regex WhitespaceRegex = new(@"\s+", RegexOptions.Compiled);
+
     // Regex для видалення посилань на канал та футерів
     private static readonly Regex ChannelLinkRegex = new(@"https?://t\.me/[\w_]+", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     
-    // Regex для видалення футера з другого каналу (більш гнучкий)
-    private static readonly Regex Channel2FooterRegex = new(
-        @"Єдина диспетчерська служба.*?(?:водопостачання|$)", 
-        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+    // Початок футера другого каналу (обрізаємо текст з першого знайденого маркера)
+    private static readonly string[] Channel2FooterMarkers = ["Чат-боти аварійних бригад", "Єдина диспетчерська служба"];
 
     public ChannelScraperService(
         ITelegramChannelScraper scraper,
@@ -87,8 +86,8 @@ public class ChannelScraperService : IChannelScraperService
             var channel1LastId = channel1State?.LastProcessedMessageId ?? 0;
             var channel2LastId = channel2State?.LastProcessedMessageId ?? 0;
 
-            var newChannel1Messages = channel1Messages.Where(m => m.MessageId > channel1LastId).ToList();
-            var newChannel2Messages = channel2Messages.Where(m => m.MessageId > channel2LastId).ToList();
+            var newChannel1Messages = SelectNewMessages(channel1Messages, channel1State);
+            var newChannel2Messages = SelectNewMessages(channel2Messages, channel2State);
 
             _logger.LogInformation(
                 "Отримано {Count1} повідомлень з @{Channel1} (нових: {New1}, останнє оброблене: {Last1}) " +
@@ -123,52 +122,16 @@ public class ChannelScraperService : IChannelScraperService
                 .OrderBy(m => m.message.PublishedAt)
                 .ToList();
 
-            // Відстежуємо найновіші повідомлення для кожного каналу
-            long latestChannel1MessageId = channel1LastId;
-            long latestChannel2MessageId = channel2LastId;
-
             // Обробляємо повідомлення у хронологічному порядку
             foreach (var (message, channelUsername) in sortedMessages)
             {
                 await ProcessMessageAsync(message, channelUsername, scrapingUsers, cancellationToken);
-
-                // Оновлюємо ID найновішого обробленого повідомлення
-                if (channelUsername == Channel1Username && message.MessageId > latestChannel1MessageId)
-                {
-                    latestChannel1MessageId = message.MessageId;
-                }
-                else if (channelUsername == Channel2Username && message.MessageId > latestChannel2MessageId)
-                {
-                    latestChannel2MessageId = message.MessageId;
-                }
             }
 
-            // Зберігаємо стан у БД для кожного каналу
-            if (latestChannel1MessageId > channel1LastId)
-            {
-                var latestChannel1Message = newChannel1Messages
-                    .OrderByDescending(m => m.MessageId)
-                    .First();
-                
-                await dataService.UpdateChannelScrapingStateAsync(
-                    Channel1Username,
-                    latestChannel1MessageId,
-                    latestChannel1Message.PublishedAt,
-                    cancellationToken);
-            }
-
-            if (latestChannel2MessageId > channel2LastId)
-            {
-                var latestChannel2Message = newChannel2Messages
-                    .OrderByDescending(m => m.MessageId)
-                    .First();
-                
-                await dataService.UpdateChannelScrapingStateAsync(
-                    Channel2Username,
-                    latestChannel2MessageId,
-                    latestChannel2Message.PublishedAt,
-                    cancellationToken);
-            }
+            // Зберігаємо стан у БД для кожного каналу — за найпізніше опублікованим повідомленням,
+            // а не за найбільшим ID: після перестворення каналу нумерація ID починається спочатку
+            await SaveLatestStateAsync(dataService, Channel1Username, newChannel1Messages, cancellationToken);
+            await SaveLatestStateAsync(dataService, Channel2Username, newChannel2Messages, cancellationToken);
 
             _logger.LogInformation("Скрапінг каналів завершено успішно. Оброблено {Count} нових повідомлень",
                 allNewMessages.Count);
@@ -179,6 +142,46 @@ public class ChannelScraperService : IChannelScraperService
         }
     }
 
+    /// <summary>
+    /// Нові повідомлення: ID більший за останній оброблений або опубліковані пізніше за нього.
+    /// Перевірка за датою потрібна, коли канал перестворили і ID почали рахуватися з нуля
+    /// (так сталося з @ddnepr_vse у грудні 2025: збережений ID ~15663 блокував усі нові пости).
+    /// </summary>
+    internal static List<TelegramChannelMessage> SelectNewMessages(
+        List<TelegramChannelMessage> messages,
+        ChannelScrapingState? state)
+    {
+        if (state == null)
+            return messages;
+
+        var lastProcessedAtUtc = DateTime.SpecifyKind(state.LastProcessedAt, DateTimeKind.Utc);
+        return messages
+            .Where(m => m.MessageId > state.LastProcessedMessageId ||
+                        (m.PublishedAt != default && m.PublishedAt.ToUniversalTime() > lastProcessedAtUtc))
+            .ToList();
+    }
+
+    private static async Task SaveLatestStateAsync(
+        IBotDataService dataService,
+        string channelUsername,
+        List<TelegramChannelMessage> newMessages,
+        CancellationToken cancellationToken)
+    {
+        var latest = newMessages
+            .OrderByDescending(m => m.PublishedAt)
+            .ThenByDescending(m => m.MessageId)
+            .FirstOrDefault();
+
+        if (latest == null)
+            return;
+
+        await dataService.UpdateChannelScrapingStateAsync(
+            channelUsername,
+            latest.MessageId,
+            latest.PublishedAt,
+            cancellationToken);
+    }
+
     private async Task ProcessMessageAsync(
         TelegramChannelMessage message,
         string channelUsername,
@@ -187,8 +190,10 @@ public class ChannelScraperService : IChannelScraperService
     {
         try
         {
+            var messageKey = $"{channelUsername}:{message.MessageId}";
+
             // Перевіряємо, чи не було повідомлення вже оброблене (локальний кеш по ID)
-            if (_processedMessages.ContainsKey(message.MessageId))
+            if (_processedMessages.ContainsKey(messageKey))
             {
                 _logger.LogDebug("Повідомлення {MessageId} з @{Channel} вже було оброблене", 
                     message.MessageId, channelUsername);
@@ -200,43 +205,60 @@ public class ChannelScraperService : IChannelScraperService
 
             // Перевіряємо дублікат по тексту (між каналами)
             var textHash = GetTextHash(cleanText);
-            if (_processedTexts.TryGetValue(textHash, out var existingMessageId))
+            if (_processedTexts.TryGetValue(textHash, out var existingMessageKey))
             {
-                _logger.LogDebug("Повідомлення {MessageId} з @{Channel} є дублікатом повідомлення {ExistingMessageId}", 
-                    message.MessageId, channelUsername, existingMessageId);
-                
+                _logger.LogDebug("Повідомлення {MessageId} з @{Channel} є дублікатом повідомлення {ExistingMessageKey}",
+                    message.MessageId, channelUsername, existingMessageKey);
+
                 // Додаємо в кеш як оброблене, але не відправляємо
-                _processedMessages.TryAdd(message.MessageId, DateTime.UtcNow);
+                _processedMessages.TryAdd(messageKey, DateTime.UtcNow);
                 return;
             }
 
-            // Парсимо повідомлення на пошук DSO і групу
-            var (dsoId, groups) = ParseMessageInfo(cleanText);
+            // Парсимо повідомлення: провайдери, групи з прив'язкою до секції провайдера, тематика
+            var info = ChannelMessageClassifier.Parse(cleanText);
 
-            if (!dsoId.HasValue && groups.Count == 0)
+            if (!info.IsRelevant)
             {
-                _logger.LogDebug("Повідомлення {MessageId} з @{Channel} не містить інформації про провайдера або групу відключень", 
+                _logger.LogDebug("Повідомлення {MessageId} з @{Channel} не містить інформації про відключення для провайдера або групи",
                     message.MessageId, channelUsername);
-                
+
                 // Додаємо в кеш як оброблене (щоб не обробляти повторно)
-                _processedMessages.TryAdd(message.MessageId, DateTime.UtcNow);
+                _processedMessages.TryAdd(messageKey, DateTime.UtcNow);
                 return;
             }
 
-            _logger.LogInformation("Повідомлення {MessageId} з @{Channel} містить інформацію (DSO: {DsoId}, Групи: {Groups})",
-                message.MessageId, channelUsername, dsoId, string.Join(", ", groups));
+            // Той самий графік уже пересилали з іншим підписом (копія з іншого каналу або «Дублюємо…»)
+            var scheduleFingerprint = ChannelMessageClassifier.GetScheduleFingerprint(cleanText);
+            var publishedUtc = message.PublishedAt == default ? DateTime.UtcNow : message.PublishedAt.ToUniversalTime();
+            var sameScheduleKey = FindSameSchedule(scheduleFingerprint, publishedUtc);
+            if (sameScheduleKey != null)
+            {
+                _logger.LogInformation("Повідомлення {MessageId} з @{Channel} містить той самий графік, що й {ExistingMessageKey}",
+                    message.MessageId, channelUsername, sameScheduleKey);
+                _processedMessages.TryAdd(messageKey, DateTime.UtcNow);
+                _processedTexts.TryAdd(textHash, messageKey);
+                return;
+            }
+
+            _logger.LogInformation(
+                "Повідомлення {MessageId} з @{Channel} містить інформацію (DSO: {DsoIds}, Групи: {Groups}, Загальнонаціональне: {Nationwide})",
+                message.MessageId, channelUsername, string.Join(", ", info.DsoIds),
+                string.Join(", ", info.Groups.Select(g => $"{g.Group}/{g.DsoId?.ToString() ?? "?"}")),
+                info.IsNationwideNotice);
 
             // Фільтруємо користувачів, яким підходить повідомлення
             var targetUsers = scrapingUsers
-                .Where(u => MatchesUser(u, dsoId, groups))
+                .Where(u => ChannelMessageClassifier.MatchesUser(info, u.DsoId, u.GroupName))
                 .ToList();
 
             if (targetUsers.Count == 0)
             {
-                _logger.LogInformation("Немає користувачів, яким відповідає повідомлення {MessageId} з @{Channel}", 
+                _logger.LogInformation("Немає користувачів, яким відповідає повідомлення {MessageId} з @{Channel}",
                     message.MessageId, channelUsername);
-                _processedMessages.TryAdd(message.MessageId, DateTime.UtcNow);
-                _processedTexts.TryAdd(textHash, message.MessageId);
+                _processedMessages.TryAdd(messageKey, DateTime.UtcNow);
+                _processedTexts.TryAdd(textHash, messageKey);
+                RememberSchedule(scheduleFingerprint, publishedUtc, messageKey);
                 return;
             }
 
@@ -268,8 +290,9 @@ public class ChannelScraperService : IChannelScraperService
             }
 
             // Додаємо в кеш оброблених повідомлень
-            _processedMessages.TryAdd(message.MessageId, DateTime.UtcNow);
-            _processedTexts.TryAdd(textHash, message.MessageId);
+            _processedMessages.TryAdd(messageKey, DateTime.UtcNow);
+            _processedTexts.TryAdd(textHash, messageKey);
+            RememberSchedule(scheduleFingerprint, publishedUtc, messageKey);
 
             _logger.LogInformation("Повідомлення {MessageId} з @{Channel} переслано {ForwardedCount}/{TotalCount} користувачів",
                 message.MessageId, channelUsername, forwardedCount, targetUsers.Count);
@@ -291,10 +314,15 @@ public class ChannelScraperService : IChannelScraperService
         // Видаляємо посилання на канали
         cleanText = ChannelLinkRegex.Replace(cleanText, "");
 
-        // Видаляємо футер з другого каналу (все після "Єдина диспетчерська служба")
+        // Видаляємо футер з другого каналу: «Чат-боти аварійних бригад 👉Світло | водопостачання👈
+        // Єдина диспетчерська служба…». Слово «аварійних» у футері інакше вважалося б аварійним алертом
         if (channelUsername == Channel2Username)
         {
-            var footerIndex = cleanText.IndexOf("Єдина диспетчерська служба", StringComparison.OrdinalIgnoreCase);
+            var footerIndex = Channel2FooterMarkers
+                .Select(marker => cleanText.IndexOf(marker, StringComparison.OrdinalIgnoreCase))
+                .Where(index => index >= 0)
+                .DefaultIfEmpty(-1)
+                .Min();
             if (footerIndex >= 0)
             {
                 cleanText = cleanText.Substring(0, footerIndex);
@@ -305,66 +333,12 @@ public class ChannelScraperService : IChannelScraperService
         return cleanText.Trim();
     }
 
-    private string GetTextHash(string text)
+    private static string GetTextHash(string text)
     {
-        // Нормалізуємо текст для порівняння (видаляємо зайві пробіли, переноси, приводимо до нижнього регістра)
-        var normalized = Regex.Replace(text.ToLowerInvariant(), @"\s+", " ").Trim();
-        
-        // Використовуємо простий хеш для порівняння
-        return normalized.Length > 100 ? normalized.Substring(0, 100) : normalized;
-    }
-
-    private (int? dsoId, List<string> groups) ParseMessageInfo(string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-            return (null, new List<string>());
-
-        int? dsoId = null;
-        var groups = new List<string>();
-
-        // Переводимо текст у нижній регістр для пошуку
-        var lowerText = text.ToLowerInvariant();
-
-        // Шукаємо провайдера (просто по ключовим словам)
-        if (lowerText.Contains("дтек"))
-        {
-            dsoId = 301;
-        }
-        else if (lowerText.Contains("цек"))
-        {
-            dsoId = 303;
-        }
-
-        // Шукаємо всі групи формату X.Y
-        var matches = GroupRegex.Matches(text);
-        foreach (Match match in matches)
-        {
-            var group = match.Groups[1].Value;
-            if (!groups.Contains(group))
-            {
-                groups.Add(group);
-            }
-        }
-
-        return (dsoId, groups);
-    }
-
-    private bool MatchesUser(BotUser user, int? dsoId, List<string> groups)
-    {
-        // Якщо вказано DSO - перевіряємо відповідність
-        if (dsoId.HasValue && user.DsoId.HasValue && user.DsoId.Value != dsoId.Value)
-        {
-            return false;
-        }
-
-        // Якщо є групи - перевіряємо чи користувацька група в списку
-        if (groups.Count > 0 && !string.IsNullOrEmpty(user.GroupName))
-        {
-            return groups.Contains(user.GroupName, StringComparer.OrdinalIgnoreCase);
-        }
-
-        // Якщо вказано хоч би DSO або є групи - приймаємо
-        return dsoId.HasValue || groups.Count > 0;
+        // Нормалізуємо текст для порівняння (видаляємо зайві пробіли, переноси, приводимо до нижнього регістра).
+        // Хешуємо весь текст: оновлення графіка з тим самим початком (зміни лише у 5.1 внизу) не є дублікатом
+        var normalized = WhitespaceRegex.Replace(text.ToLowerInvariant(), " ").Trim();
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalized)));
     }
 
     private string FormatForwardedMessage(
@@ -406,10 +380,55 @@ public class ChannelScraperService : IChannelScraperService
             _processedTexts.TryRemove(key, out _);
         }
 
-        if (expiredMessageKeys.Count > 0 || expiredTextKeys.Count > 0)
+        // Графіки тримаємо добу від публікації
+        var expiredScheduleCount = 0;
+        lock (_schedulesLock)
         {
-            _logger.LogDebug("Очищено {MessageCount} повідомлень та {TextCount} текстів з кешу", 
-                expiredMessageKeys.Count, expiredTextKeys.Count);
+            foreach (var content in _processedSchedules.Keys.ToList())
+            {
+                var entries = _processedSchedules[content];
+                expiredScheduleCount += entries.RemoveAll(e => now - e.PublishedUtc > ChannelMessageClassifier.SameDateScheduleWindow);
+                if (entries.Count == 0)
+                    _processedSchedules.Remove(content);
+            }
+        }
+
+        if (expiredMessageKeys.Count > 0 || expiredTextKeys.Count > 0 || expiredScheduleCount > 0)
+        {
+            _logger.LogDebug("Очищено {MessageCount} повідомлень, {TextCount} текстів та {ScheduleCount} графіків з кешу",
+                expiredMessageKeys.Count, expiredTextKeys.Count, expiredScheduleCount);
+        }
+    }
+
+    /// <summary>
+    /// Ключ повідомлення, яке вже переслало цей самий графік, або null
+    /// </summary>
+    private static string? FindSameSchedule(ChannelMessageClassifier.ScheduleFingerprint? fingerprint, DateTime publishedUtc)
+    {
+        if (fingerprint == null)
+            return null;
+
+        lock (_schedulesLock)
+        {
+            if (!_processedSchedules.TryGetValue(fingerprint.Content, out var entries))
+                return null;
+
+            return entries
+                .FirstOrDefault(e => ChannelMessageClassifier.IsSameSchedule(fingerprint, publishedUtc, e.Fingerprint, e.PublishedUtc))
+                .MessageKey;
+        }
+    }
+
+    private static void RememberSchedule(ChannelMessageClassifier.ScheduleFingerprint? fingerprint, DateTime publishedUtc, string messageKey)
+    {
+        if (fingerprint == null)
+            return;
+
+        lock (_schedulesLock)
+        {
+            if (!_processedSchedules.TryGetValue(fingerprint.Content, out var entries))
+                _processedSchedules[fingerprint.Content] = entries = new();
+            entries.Add((fingerprint, publishedUtc, messageKey));
         }
     }
 }

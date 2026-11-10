@@ -13,6 +13,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "KubeSetup", "KubeSetup", "{
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AVE.ElectricityBot.Data", "AVE.ElectricityBot.Data\AVE.ElectricityBot.Data.csproj", "{44930B85-E444-4E96-8688-609AC51AE188}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AVE.ElectricityBot.Tests", "AVE.ElectricityBot.Tests\AVE.ElectricityBot.Tests.csproj", "{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,6 +73,18 @@ Global
 		{44930B85-E444-4E96-8688-609AC51AE188}.Release|x64.Build.0 = Release|Any CPU
 		{44930B85-E444-4E96-8688-609AC51AE188}.Release|x86.ActiveCfg = Release|Any CPU
 		{44930B85-E444-4E96-8688-609AC51AE188}.Release|x86.Build.0 = Release|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Debug|x64.Build.0 = Debug|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Debug|x86.Build.0 = Debug|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Release|x64.ActiveCfg = Release|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Release|x64.Build.0 = Release|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Release|x86.ActiveCfg = Release|Any CPU
+		{DDAF69CC-99A3-4CCA-B99C-B80F9F6B41A8}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
